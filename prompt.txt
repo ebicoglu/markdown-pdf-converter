@@ -1,0 +1,65 @@
+Task: Converting Markdown files to a single PDF. 
+The markdown files are stored on https://github.com/abpframework/abp/tree/dev/docs.
+We render these markdowns as HTML and publish on https://abp.io/docs/latest/.
+There are markdown files as .md extension in the D:\github\volosoft\abp\docs\en directory. 
+You will convert these markdown files into a single PDF file.
+Ignore the folders "Blog-Posts","Community-Articles", ".vscode", "_deleted", "_resources".
+You can find the source-code of the website that renders https://abp.io/docs/latest/ is located at my local file system => D:\github\volosoft\abp\modules\docs
+
+RULES:
+- The output will be only 1 PDF file.
+- The PDF will be generated in the root directory of markdown files which is D:\github\volosoft\abp\docs\en.
+- Each document must start with a new PDF page within the PDF.
+- Each document must end with a <hr> line in the PDF.
+- Each markdown document should start with a `#` tag which means header of the document, if there's no header starts with `#` write a warning so that we can fix.
+- Write to file system logs in the folder calle "Logs" within the console app's working directory.
+- Use "Scriban" NuGet package Version=5.12.1 the URL of the NuGet is https://www.nuget.org/packages/Scriban/
+- 
+
+
+There are some parameters in the markdown files. These parameters are being used to render HTML conditionally. That's why you'll parse these parameters and create separate sections. 
+
+For example the following is a parameter list for a specific markdown document. In this parameter list, there are 3 variables: UI, DB and Tiered. UI has 5 options: "MVC", "Blazor", "BlazorServer", "BlazorWebApp", "NG". DB has 2 options: "EF", "Mongo". And the Tiered has 2 options: "Yes", "No".
+ 
+````json
+//[doc-params]
+{
+    "UI": ["MVC", "Blazor", "BlazorServer", "BlazorWebApp", "NG"],
+    "DB": ["EF", "Mongo"],
+    "Tiered": ["Yes", "No"]
+}
+````
+
+
+And in the following code block, you can see these parameters are being used to conditionally grab the correct content. 
+We use Scriban which is a scripting language and engine for .NET, which was primarily developed for text templating with a compatibility mode for parsing liquid templates.
+You can check the official website of Scriban to learn about how it is working at https://github.com/scriban/scriban 
+
+Code example of Scriban if conditions:
+
+{{ if DB == "EF" }}
+![abp-studio-new-solution-dialog-database-provider](images/abp-studio-new-solution-dialog-database-provider-efcore.png)
+{{ else }}
+![abp-studio-new-solution-dialog-database-provider](images/abp-studio-new-solution-dialog-database-provider-mongo.png)
+{{ end }}
+
+{{ if Tiered == "Yes" }}
+- `Docker-Dependencies`
+- `Acme.BookStore.AuthServer`
+- `Acme.BookStore.HttpApi.Host`
+{{ end }}
+
+{{ if UI == "NG" }}
+{{ if Tiered == "No" }}- `Acme.BookStore.HttpApi.Host`{{ end }}
+- `Acme.BookStore.Angular`
+{{ else if UI == "Blazor" }}
+{{ if Tiered == "No" }}- `Acme.BookStore.HttpApi.Host`{{ end }}
+- `Acme.BookStore.Blazor`
+{{ else if UI == "BlazorServer" || UI == "BlazorWebApp" }}
+- `Acme.BookStore.Blazor`
+{{ else }}
+- `Acme.BookStore.Web`
+{{ end }}
+
+
+Create the necessary classes to convert the markdowns to PDF.
