@@ -6,7 +6,7 @@ internal class Program
 {
     private static async Task Main(string[] args)
     {
-        var sourceDirectory = @"D:\temp\book-store"; //@"D:\github\volosoft\abp\docs\en";
+        var sourceDirectory = @"D:\github\volosoft\abp\docs\en";
         var outputPdfFile = $"D:\\temp\\abp-docs-{DateTime.Now:yyyy-MM-dd}.pdf";
         var logDirectory = Path.Combine(AppContext.BaseDirectory, "Logs");
         bool shouldAddOriginalMarkdownFilePath = true;
