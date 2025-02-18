@@ -2,7 +2,7 @@ namespace AbpDocsMd2PdfConverter;
 
 public class ParameterCombinator
 {
-    public static IEnumerable<Dictionary<string, string>> GenerateCombinations(Dictionary<string, string[]> parameters)
+    public static Dictionary<string, string>[] Generate(Dictionary<string, string[]> parameters)
     {
         var keys = parameters.Keys.ToList();
         var combinations = new List<Dictionary<string, string>>();
@@ -12,7 +12,7 @@ public class ParameterCombinator
         {
             if (index == keys.Count)
             {
-                combinations.Add(new Dictionary<string, string>(current));
+                //combinations.Add(new Dictionary<string, string>(current));
                 return;
             }
 
@@ -25,6 +25,6 @@ public class ParameterCombinator
         }
 
         Generate(0);
-        return combinations;
+        return combinations.ToArray();
     }
 }

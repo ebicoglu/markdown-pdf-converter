@@ -4,14 +4,9 @@ using iText.Kernel.Pdf.Canvas.Draw;
 using iText.Layout;
 using iText.Layout.Element;
 using Markdig;
-using Scriban;
-using Scriban.Runtime;
 using iText.Html2pdf;
-using iText.Html2pdf.Resolver.Font;
 using System.Text;
 using iText.Layout.Font;
-using iText.StyledXmlParser.Resolver.Font;
-using static iText.IO.Image.Jpeg2000ImageData;
 
 namespace AbpDocsMd2PdfConverter;
 
@@ -19,29 +14,28 @@ public class MdPdfConverter
 {
     private readonly string _sourceDirectory;
     private readonly string _outputPdfPath;
-    private readonly string[] _ignoreFilesWhichHave;
+    private readonly string[] _ignoredContents;
     private readonly bool _shouldAddOriginalMarkdownFilePath;
+    private readonly string[] _excludedFolders;
     private readonly ILogger _logger;
     private readonly ConverterProperties _converterProperties;
     private readonly DisplayParameter _displayParameters;
 
-    private static readonly string[] ExcludedFolders = [
-        "Blog-Posts",
-        "Community-Articles",
-        ".vscode",
-        "_deleted",
-        "_resources"
-    ];
 
-    public MdPdfConverter(string sourceDirectory, string outputPdfPath, string[] ignoreFilesWhichHave, bool shouldAddOriginalMarkdownFilePath, string logDirectory)
+    public MdPdfConverter(string sourceDirectory,
+        string outputPdfPath,
+        string[] ignoredContents,
+        bool shouldAddOriginalMarkdownFilePath,
+        string logDirectory,
+        string[] excludedFolders)
     {
         _sourceDirectory = sourceDirectory;
         _outputPdfPath = outputPdfPath;
-        _ignoreFilesWhichHave = ignoreFilesWhichHave;
+        _ignoredContents = ignoredContents;
         _shouldAddOriginalMarkdownFilePath = shouldAddOriginalMarkdownFilePath;
+        _excludedFolders = excludedFolders;
         _logger = new FileLogger(logDirectory);
         _converterProperties = new ConverterProperties();
-
         InitializeFonts();
         _displayParameters = DisplayParameter.Build();
     }
@@ -50,8 +44,8 @@ public class MdPdfConverter
     {
         try
         {
-            var markdownFilePaths = GetMarkdownFiles();
-            CreateTheOutputDirectoryIfNotExists(_outputPdfPath);
+            var markdownFilePaths = Helper.GetMarkdownFiles(_sourceDirectory, _excludedFolders);
+            Helper.CreateTheOutputDirectoryIfNotExists(_outputPdfPath);
 
             using var pdfWriter = new PdfWriter(_outputPdfPath);
             using var pdf = new PdfDocument(pdfWriter);
@@ -59,7 +53,7 @@ public class MdPdfConverter
 
             for (int i = 0; i < markdownFilePaths.Count; i++)
             {
-                _logger.Log($"[{(i + 1)} / {markdownFilePaths.Count}] Processing file: {markdownFilePaths[i]}");
+                _logger.Log($"[{(i + 1)} / {markdownFilePaths.Count}] {markdownFilePaths[i]}");
                 await ProcessNewMarkdownFileAsync(markdownFilePaths[i], document);
             }
 
@@ -73,52 +67,36 @@ public class MdPdfConverter
         }
     }
 
-    private List<string> GetMarkdownFiles()
-    {
-        return Directory
-            .GetFiles(_sourceDirectory, "*.md", SearchOption.AllDirectories)
-            .Where(file => !ExcludedFolders.Any(folder => file.Contains(Path.Combine(_sourceDirectory, folder))))
-            .ToList();
-    }
-
     private async Task ProcessNewMarkdownFileAsync(string filePath, Document document)
     {
         try
         {
             var markdownContent = await File.ReadAllTextAsync(filePath);
-            if (ShouldIgnoreThisFile(markdownContent))
+            if (Helper.ShouldIgnoreThisFile(markdownContent, _ignoredContents))
             {
                 return;
             }
 
             if (_shouldAddOriginalMarkdownFilePath)
             {
-                markdownContent = $"_(This document is transformed from {filePath})_" + Environment.NewLine + markdownContent;
+                var gitHubUrl = Helper.GetGitHubDocumentUrl(filePath, markdownContent);
+                markdownContent = $"_(The original document is [here]({gitHubUrl}))_" + Environment.NewLine + markdownContent;
             }
 
             var parameters = ExtractDocParameters(markdownContent);
+            var combinations = ParameterCombinator.Generate(parameters);
 
-            if (parameters != null)
+            if (combinations.Length > 0)
             {
-                var combinations = ParameterCombinator.GenerateCombinations(parameters);
                 foreach (var combination in combinations)
                 {
-                    var displayParameters = BuildDisplayParameters(combination);
-                    var renderedMarkdown = await RenderMarkdownWithParameters(markdownContent, combination, displayParameters);
-                    renderedMarkdown = ReplaceDocParamsWithThisCombination(renderedMarkdown, displayParameters);
-                    renderedMarkdown = RemoveDocNavSection(renderedMarkdown);
-
-                    AddHtmlContent(document, renderedMarkdown);
-                    AddHorizontalLine(document);
+                    BuildPdfDocument(document, markdownContent, true, combination);
                 }
             }
             else
             {
-                AddHtmlContent(document, markdownContent);
-                //  AddHorizontalLine(document);  
+                BuildPdfDocument(document, markdownContent, false);
             }
-
-            document.Add(new AreaBreak()); //add new document break;
         }
         catch (Exception ex)
         {
@@ -126,18 +104,14 @@ public class MdPdfConverter
         }
     }
 
-    private bool ShouldIgnoreThisFile(string markdownContent)
+    private async Task<string> FillDocumentParameters(Dictionary<string, string>? combination, string markdownContent)
     {
-        foreach (var ignoredText in _ignoreFilesWhichHave)
-        {
-            if (markdownContent.Contains(ignoredText, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var displayParameters = BuildDisplayParameters(combination);
+        var renderedMarkdown = await ScribanRenderer.Render(markdownContent, combination, displayParameters);
+        renderedMarkdown = Helper.ReplaceDocParamsWithThisCombination(renderedMarkdown, displayParameters);
+        return renderedMarkdown;
     }
+
 
     private static void AddHorizontalLine(Document document)
     {
@@ -148,12 +122,12 @@ public class MdPdfConverter
         );
     }
 
-    private Dictionary<string, string[]>? ExtractDocParameters(string markdown)
+    private Dictionary<string, string[]> ExtractDocParameters(string markdown)
     {
         var match = Regex.Match(markdown, @"//\[doc-params\]\s*({[\s\S]*?})", RegexOptions.Multiline);
         if (!match.Success)
         {
-            return null;
+            return new Dictionary<string, string[]>();
         }
 
         try
@@ -164,35 +138,17 @@ public class MdPdfConverter
         catch
         {
             _logger.Log($"Failed to parse doc-params JSON");
+            return new Dictionary<string, string[]>();
+        }
+    }
+
+    private Dictionary<string, string>? BuildDisplayParameters(Dictionary<string, string>? combinations)
+    {
+        if (combinations == null)
+        {
             return null;
         }
-    }
 
-    private async Task<string> RenderMarkdownWithParameters(
-        string template,
-        Dictionary<string, string> parameters,
-        Dictionary<string, string> displayParameters)
-    {
-        var scribanTemplate = Template.Parse(template);
-        var context = new TemplateContext();
-        var scriptObject = new ScriptObject();
-
-        foreach (var param in parameters)
-        {
-            scriptObject.Add(param.Key, param.Value);
-        }
-
-        foreach (var displayParam in displayParameters)
-        {
-            scriptObject.Add(displayParam.Key + "_Value", displayParam.Value);
-        }
-
-        context.PushGlobal(scriptObject);
-        return await scribanTemplate.RenderAsync(context);
-    }
-
-    private Dictionary<string, string> BuildDisplayParameters(Dictionary<string, string> combinations)
-    {
         var displayParameters = new Dictionary<string, string>();
 
         foreach (var combination in combinations)
@@ -224,6 +180,23 @@ public class MdPdfConverter
         _converterProperties.SetFontProvider(fontProvider);
     }
 
+
+    private async Task BuildPdfDocument(Document document, string markdown, bool shouldAddHorizontalLine, Dictionary<string, string>? combination = null)
+    {
+        markdown = await FillDocumentParameters(combination, markdown);
+
+        markdown = Helper.RemoveDocNavSection(markdown);
+
+        AddHtmlContent(document, markdown);
+
+        if (shouldAddHorizontalLine)
+        {
+            AddHorizontalLine(document);
+        }
+
+        document.Add(new AreaBreak()); //add new document break;
+    }
+
     private void AddHtmlContent(Document document, string markdown)
     {
         var html = ConvertMarkdownToHtml(markdown);
@@ -248,74 +221,7 @@ public class MdPdfConverter
         }
     }
 
-    private static void CreateTheOutputDirectoryIfNotExists(string filePath)
-    {
-        var directoryPath = Path.GetDirectoryName(filePath);
-        if (string.IsNullOrEmpty(directoryPath))
-        {
-            return;
-        }
-
-        if (Directory.Exists(directoryPath))
-        {
-            return;
-        }
-
-        Directory.CreateDirectory(directoryPath);
-    }
 
 
-    private static string ReplaceDocParamsWithThisCombination(string markdown, Dictionary<string, string> displayParameters)
-    {
-        var variables = string.Empty;
-
-        if (displayParameters.TryGetValue("UI", out var ui))
-        {
-            variables += $"**UI:** {ui}";
-        }
-
-        if (displayParameters.TryGetValue("DB", out var db))
-        {
-            var database = db == "EF" ? "Entity Framework Core" : db;
-            variables += $", **Database:** {database}";
-        }
-
-        if (displayParameters.TryGetValue("Tiered", out var tiered))
-        {
-            variables += $", **Tiered:** {tiered}";
-        }
-
-        var replacementText = "* This section is for the project config " + variables;
-
-        // Replace the doc-params JSON block including the code block markers with the formatted text
-        return Regex.Replace(
-            markdown,
-            @"````json\s*//\[doc-params\]\s*{[\s\S]*?}\s*````",
-            replacementText,
-            RegexOptions.Multiline
-        );
-    }
-
-    private static string RemoveDocNavSection(string markdown)
-    {
-        /*removes the following section:
-         ````json
-           //[doc-nav]
-           {
-             "Next": {
-               "Name": "Creating the server side",
-               "Path": "tutorials/book-store/part-01"
-             }
-           }
-           ````
-         */
-
-        return Regex.Replace(
-            markdown,
-            @"````json\s*//\[doc-nav\][\s\S]*?````",
-            string.Empty,
-            RegexOptions.Multiline
-        );
-    }
 
 }
