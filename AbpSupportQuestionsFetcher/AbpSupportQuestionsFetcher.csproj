@@ -8,14 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Scriban" Version="5.12.1" />
     <PackageReference Include="Markdig" Version="0.40.0" />
+    <PackageReference Include="Npgsql" Version="9.0.2" />
+
     <PackageReference Include="itext7" Version="9.1.0" />
     <PackageReference Include="itext7.pdfhtml" Version="6.1.0" />
     <PackageReference Include="itext7.commons" Version="9.1.0" />
     <PackageReference Include="itext7.font-asian" Version="9.1.0" />
     <PackageReference Include="itext7.bouncy-castle-adapter" Version="9.1.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+
   </ItemGroup>
 
 </Project>
