@@ -46,7 +46,7 @@ public class AnythingLLMService
         {
             Console.WriteLine(ex.ToString());
 
-            return new AnythingLLMPromptResponse(
+            return new AnythingLLMPromptResponse
             {
                 error = ex,
                 textResponse = ex.Message,
