@@ -1,34 +1,5 @@
 [Serializable]
-public class AnythingllmEntities
-{
-    
-    public string id;
-    public string @object;
-    public int created;
-    public string model;
-    public List<Choice> choices;
-
-    [Serializable]
-    public class Choice
-    {
-        public int index;
-        public string text;
-        public object logprobs;
-        public object finish_reason;
-    }
-}
-
-[System.Serializable]
-public class ApiJsonPayload
-{
-    public string model;
-    public string prompt;
-    public int max_tokens;
-    public bool stream;
-}
-
-[System.Serializable]
-public class AnythingLLMJSONPayload
+public class AnythingLLMInput
 {
     public string message;
     public string mode;
