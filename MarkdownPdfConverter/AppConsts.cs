@@ -2,8 +2,8 @@
 
 public static class AppConsts
 {
+    //TODO: Change SourceDirectory and OutputPdfFile paths...
     public const string SourceDirectory = @"D:\github\volosoft\abp\docs\en"; //@"D:\temp";  
-
     public static string OutputPdfFile = $"D:\\temp\\abp-docs-{DateTime.Now:yyyy-MM-dd}.pdf";
 
     public static readonly string[] ExcludedFolders = [
