@@ -13,16 +13,20 @@ using Npgsql;
 
 namespace AbpSupportQuestionsFetcher;
 
+
 class Program
 {
+
     //TODO UPDATE THESE OPTIONS
     //------------------------------------------------------------------------------------------------
-    private static readonly string OutputPdfPath = $"D:\\temp\\abp-support-{DateTime.Now:yyyy-MM-dd}.pdf";
-    private static readonly string ConnectionString = "Host=localhost;Database=AbpIoPlatform;Username=root;Password=root;Port=5432";
-    private static readonly int? MaxRecordCount = 10;
+    public static string OutputPdfPath = $"D:\\temp\\abp-support-{DateTime.Now:yyyy-MM-dd}.pdf";
+    public static string ConnectionString = "Host=localhost;Database=AbpIoPlatform;Username=root;Password=root;Port=5432";
+    public static int? MaxRecordCount = null;
+    public static bool? OnlyAcceptedAnswers = true;
     //------------------------------------------------------------------------------------------------
 
 
+    private static int RowCount = 0;
     private static ConverterProperties? _converterProperties;
     private static void InitializeFonts()
     {
@@ -34,10 +38,18 @@ class Program
         _converterProperties.SetFontProvider(fontProvider);
     }
 
-    static void Main()
+    private static void Main()
     {
         InitializeFonts();
 
+        CreatePdf();
+
+        Console.WriteLine($"PDF created successfully: {OutputPdfPath}");
+        Console.ReadKey();
+    }
+
+    private static void CreatePdf()
+    {
         using (var writer = new PdfWriter(OutputPdfPath))
         {
             using (var pdf = new PdfDocument(writer))
@@ -50,7 +62,33 @@ class Program
                 {
                     conn.Open();
 
-                    string query = @"
+                    var query = BuildQuery();
+
+                    using (var cmd = new NpgsqlCommand(query, conn))
+                    {
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            var lastQuestionId = string.Empty;
+                            while (reader.Read())
+                            {
+                                ++RowCount;
+                                lastQuestionId = ProcessLine(reader, lastQuestionId, document);
+                            }
+                        }
+                    }
+                }
+
+                document.Close();
+            }
+        }
+    }
+
+    private static string BuildQuery()
+    {
+        var onlyAcceptedAnswers = OnlyAcceptedAnswers.HasValue && OnlyAcceptedAnswers.Value ? "AND a.\"IsAccepted\" = true" : "";
+        var limitCount = MaxRecordCount.HasValue ? "LIMIT " + MaxRecordCount.Value : "";
+
+        return @"
 
 SELECT q.""Id"" AS QuestionId, 
 	q.""Title"", 
@@ -69,34 +107,8 @@ LEFT JOIN ""QaUsers"" uCreator ON q.""CreatorId"" = uCreator.""Id""
 LEFT JOIN ""QaUsers"" uAnswerer ON a.""CreatorId"" = uAnswerer.""Id""
 WHERE 
 	q.""IsDeleted"" = false AND 
-	a.""IsDeleted"" = false 
-ORDER BY q.""Number"", a.""CreationTime""
-";
-
-                    if (MaxRecordCount.HasValue)
-                    {
-                        query += "LIMIT " + MaxRecordCount.Value;
-                    }
-
-                    using (var cmd = new NpgsqlCommand(query, conn))
-                    {
-                        using (var reader = cmd.ExecuteReader())
-                        {
-                            string lastQuestionId = string.Empty;
-                            while (reader.Read())
-                            {
-                                lastQuestionId = ProcessLine(reader, lastQuestionId, document);
-                            }
-                        }
-                    }
-                }
-
-                document.Close();
-            }
-        }
-
-        Console.WriteLine($"PDF created successfully: {OutputPdfPath}");
-        Console.ReadKey();
+	a.""IsDeleted"" = false " + onlyAcceptedAnswers +
+@" ORDER BY q.""Number"", a.""CreationTime"" " + limitCount;
     }
 
     private static void AddFirstPage(Document document)
@@ -144,14 +156,14 @@ ORDER BY q.""Number"", a.""CreationTime""
             string questionNumber = reader["QuestionNumber"].ToString();
             string questionText = MdToHtmlConverter.Convert(reader["QuestionText"].ToString());
             string questionTime = Convert.ToDateTime(reader["QuestionTime"]).ToString("yyyy-MM-dd HH:mm");
-            string questionUser = reader["QuestionUser"].ToString();
             string answerText = MdToHtmlConverter.Convert(reader["AnswerText"] != DBNull.Value ? reader["AnswerText"].ToString() : null);
             string answerTime = reader["AnswerTime"] != DBNull.Value ? Convert.ToDateTime(reader["AnswerTime"]).ToString("yyyy-MM-dd HH:mm") : null;
-            string answerUser = reader["AnswerUser"] != DBNull.Value ? reader["AnswerUser"].ToString() : null;
             bool isAnswerAccepted = reader["AnswerIsAccepted"] != DBNull.Value && (bool)reader["AnswerIsAccepted"];
             bool isAnswerUserTeamMember = reader["AnswerUserTeamMember"] != DBNull.Value && (bool)reader["AnswerUserTeamMember"];
+            //string answerUser = reader["AnswerUser"] != DBNull.Value ? reader["AnswerUser"].ToString() : null;
+            //string questionUser = reader["QuestionUser"].ToString();
 
-            Console.WriteLine(currentQuestionId);
+            Console.WriteLine(RowCount + ".) " + currentQuestionId);
 
 
             if (currentQuestionId != lastQuestionId)
